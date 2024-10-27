@@ -1,16 +1,19 @@
-// Copyright 2024 the Dart project authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license
-// that can be found in the LICENSE file.
-
-// AIzaSyCDRy528NkxcpPs1UuBJ_cQrY4R_ZRPUWc
+// main.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:url_launcher/link.dart';
-import 'package:dart_openai/dart_openai.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:record/record.dart'; // Import the 'record' package
+
+// At the top of your file, after the imports
+const bool useLocalServer = true; // Set this to true for local development, false for production
+const String localUrl = 'http://127.0.0.1:8000';
+const String serverUrl = 'http://3.94.59.201:8000';
+
+// Create a getter for the base URL
+String get baseUrl => useLocalServer ? localUrl : serverUrl;
 
 void main() {
   runApp(const GenerativeAISample());
@@ -46,33 +49,40 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  String? apiKey;
   List<Map<String, String>> favoriteConversations = [];
+
+  void _saveConversationToFavorites(String title, String summary) {
+    setState(() {
+      favoriteConversations.add({
+        'title': title,
+        'summary': summary,
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Voz Interior', // Centered title
+          'Voz Interior',
           style: TextStyle(
-            fontSize: 20, // Font size for the title
+            fontSize: 20,
           ),
         ),
         leading: Builder(
           builder: (context) => IconButton(
-            icon: const Icon(Icons.menu), // Hamburger menu icon
+            icon: const Icon(Icons.menu),
             onPressed: () {
-              // Open the drawer
               Scaffold.of(context).openDrawer();
             },
           ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.chair), // Chef hat icon
+            icon: const Icon(Icons.chair),
             onPressed: () {
-              // Add your chef hat action here
+              // Add your action here
             },
           ),
         ],
@@ -80,24 +90,24 @@ class _ChatScreenState extends State<ChatScreen> {
       drawer: Drawer(
         child: SafeArea(
           child: ListView(
-            padding: EdgeInsets.only(top: 70), // Add top padding here
+            padding: const EdgeInsets.only(top: 70),
             children: <Widget>[
               Container(
-                height: 50, // Set the height for the header
+                height: 50,
                 width: 100,
-                decoration: BoxDecoration(
-                  color: const Color.fromARGB(255, 124, 72, 248),
+                decoration: const BoxDecoration(
+                  color: Color.fromARGB(255, 124, 72, 248),
                   borderRadius: BorderRadius.vertical(
                     bottom: Radius.circular(20),
                     top: Radius.circular(20),
-                  ), // Rounded corners for both top and bottom
+                  ),
                 ),
-                child: const Center( // Center the text horizontally
+                child: const Center(
                   child: Text(
                     'Menu',
                     style: TextStyle(
-                      fontSize: 20, // Adjust font size if needed
-                      color: Colors.white, // Ensure text color is visible
+                      fontSize: 20,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -106,20 +116,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 leading: const Icon(Icons.home),
                 title: const Text('Sessão'),
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
-                  // Implement navigation logic to "Diálogo" if needed
+                  Navigator.pop(context);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.favorite),
-                title: const Text('Favotiros'),
+                title: const Text('Favoritos'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) =>
-                          FavoritesPage(favorites: favoriteConversations), // Pass the favorites list
+                      builder: (context) => FavoritesPage(
+                        favorites: favoriteConversations,
+                      ),
                     ),
                   );
                 },
@@ -134,25 +144,17 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
-  void _saveConversationToFavorites(String title, String summary) {
-    setState(() {
-      favoriteConversations.add({
-        'title': title,
-        'summary': summary,
-      });
-    });
-  }
 }
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({
-    required this.favoriteConversations, // Receive the favorites list
-    required this.onSaveFavorite, // Receive a callback to save favorites
+    required this.favoriteConversations,
+    required this.onSaveFavorite,
     super.key,
   });
 
-  final List<Map<String, String>> favoriteConversations; // Store the favorites list
-  final Function(String, String) onSaveFavorite; // Callback for saving favorites
+  final List<Map<String, String>> favoriteConversations;
+  final Function(String, String) onSaveFavorite;
 
   @override
   State<ChatWidget> createState() => _ChatWidgetState();
@@ -164,18 +166,125 @@ class _ChatWidgetState extends State<ChatWidget> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _textFieldFocus = FocusNode(debugLabel: 'TextField');
   bool _loading = false;
-
-  List<Map<String, String>> favoriteConversations = [];
+  final _audioRecorder = AudioRecorder(); // Initialize the recorder
+  bool _isRecording = false;
 
   @override
   void initState() {
     super.initState();
-    _messages = [];
     // Optionally add an initial assistant message
     _messages.add({
       'role': 'assistant',
       'content': 'Olá! Como posso ajudá-lo hoje?'
     });
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      // Check and request permission
+      if (await _audioRecorder.hasPermission()) {
+        // Get the temporary directory
+        String filePath = '/Users/pedroloes/Documents/drope/flutter_projects/mind_talks/temp/temp_audio.m4a';
+
+        // Start recording
+        await _audioRecorder.start(
+          const RecordConfig(),
+          path: filePath);
+
+        setState(() {
+          _isRecording = true;
+        });
+      } else {
+        _showError(
+            'Permissão para acessar o microfone negada. Por favor, habilite nas configurações do aplicativo.');
+      }
+    } catch (e) {
+      _showError('Erro ao iniciar a gravação: $e');
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      // Stop recording
+      String? filePath = await _audioRecorder.stop();
+
+      setState(() {
+        _isRecording = false;
+      });
+
+      if (filePath != null) {
+        File audioFile = File(filePath);
+        await _sendAudioFile(audioFile);
+      }
+    } catch (e) {
+      _showError('Erro ao parar a gravação: $e');
+    }
+  }
+
+  Future<void> _sendAudioFile(File audioFile) async {
+    setState(() {
+      _loading = true;
+    });
+
+    try {
+      // Check if the file exists before proceeding
+      if (await audioFile.exists()) {
+        // Read the file into memory as bytes
+        var bytes = await audioFile.readAsBytes();
+
+        // Create a multipart request
+        var request = http.MultipartRequest(
+          'POST',
+          Uri.parse('$baseUrl/transcription'),
+        );
+
+        // Add the audio file to the request
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            bytes,
+            filename: 'audio.m4a',
+            // contentType: MediaType('audio', 'm4a'), // Optionally remove this if causing issues
+          ),
+        );
+
+        // Send the request
+        var response = await request.send();
+
+        // Process the response
+        if (response.statusCode == 200) {
+          var responseData = await http.Response.fromStream(response);
+          final data = jsonDecode(utf8.decode(responseData.bodyBytes));  // Add UTF-8 decoding here
+
+          final transcription = data['transcription'] ?? '';
+          final transcribedText = transcription['text'] ?? '';
+          print('Transcribed Text: $transcribedText');
+          
+          setState(() {
+            _messages.add({'role': 'user', 'content': transcribedText});
+          });
+
+          // Send the transcribed text to get the assistant's reply
+          await _sendChatMessage(transcribedText);
+        } else {
+          _showError('Erro ao transcrever o áudio. Status: ${response.statusCode}');
+        }
+      } else {
+        _showError('Arquivo de áudio não encontrado.');
+      }
+    } catch (e) {
+      _showError('Erro ao enviar o arquivo de áudio: $e');
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioRecorder.dispose();
+    super.dispose();
   }
 
   void _scrollDown() {
@@ -201,33 +310,36 @@ class _ChatWidgetState extends State<ChatWidget> {
     try {
       // Prepare the messages to send to the backend
       final messages = _messages;
+      // print('$baseUrl/summary');
 
       // Call the '/summary' endpoint
       final summaryResponse = await http.post(
-        Uri.parse('http://127.0.0.1:5000/summary'),
+        Uri.parse('$baseUrl/summary'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'messages': messages}),
+        encoding: Encoding.getByName('utf-8'),
       );
 
       if (summaryResponse.statusCode != 200) {
         throw Exception('Failed to generate summary');
       }
-
-      final summaryData = jsonDecode(summaryResponse.body);
+      
+      final summaryData = jsonDecode(utf8.decode(summaryResponse.bodyBytes));
       final summary = summaryData['summary'] ?? 'No summary available';
 
       // Call the '/title' endpoint
       final titleResponse = await http.post(
-        Uri.parse('http://127.0.0.1:5000/title'),
+        Uri.parse('$baseUrl/title'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'messages': messages}),
+        encoding: Encoding.getByName('utf-8'),
       );
 
       if (titleResponse.statusCode != 200) {
         throw Exception('Failed to generate title');
       }
 
-      final titleData = jsonDecode(titleResponse.body);
+      final titleData = jsonDecode(utf8.decode(titleResponse.bodyBytes));
       final title = titleData['title'] ?? 'Sessão Favorita';
 
       // Save to favorites
@@ -262,67 +374,71 @@ class _ChatWidgetState extends State<ChatWidget> {
       children: [
         // The header with title and delete button
         Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color.fromARGB(255, 115, 75, 234), // Solid background color for the header
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(20), top: Radius.circular(20)), // Rounded corners at the bottom
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Padding around the container
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 8), // Padding on the left for the Text component
-              child: const Text(
-                'Sessão',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white, // Ensure the text is visible
-                ),
+          padding: const EdgeInsets.all(8.0),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color.fromARGB(255, 115, 75, 234),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(20),
+                top: Radius.circular(20),
               ),
             ),
-            Row(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton(
-                  onPressed: _clearConversation,
-                  icon: const Icon(Icons.delete, color: Colors.white), // Ensure the icon is visible
+                const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Text(
+                    'Sessão',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
-                // Step 2: Add favorite button
-                IconButton(
-                  onPressed: _saveConversationToFavorites,
-                  icon: const Icon(Icons.favorite, color: Colors.white), // Heart icon for favorite
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: _clearConversation,
+                      icon: const Icon(Icons.delete, color: Colors.white),
+                    ),
+                    IconButton(
+                      onPressed: _saveConversationToFavorites,
+                      icon: const Icon(Icons.favorite, color: Colors.white),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
-      ),
-    ),
-    Expanded(
+        Expanded(
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3), // Background color with opacity
-              borderRadius: BorderRadius.circular(16.0), // Rounded corners
+              color: Colors.black.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(16.0),
               image: DecorationImage(
-                image: AssetImage('assets/couch.jpg'), // Background image for conversation
+                image: const AssetImage('assets/couch.jpg'),
                 fit: BoxFit.cover,
                 colorFilter: ColorFilter.mode(
-                  Colors.black.withOpacity(0.50), // Add black overlay with opacity
+                  Colors.black.withOpacity(0.50),
                   BlendMode.darken,
                 ),
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0, vertical: 8.0),
               child: ListView.builder(
                 controller: _scrollController,
                 itemBuilder: (context, idx) {
                   final message = history[idx];
                   // Skip system messages
                   if (message['role'] == 'system') {
-                    return SizedBox.shrink(); // Returns an empty widget
+                    return const SizedBox.shrink();
                   }
                   final text = message['content'] ?? '';
                   return MessageWidget(
@@ -353,20 +469,33 @@ class _ChatWidgetState extends State<ChatWidget> {
                   onSubmitted: (String value) {
                     _sendChatMessage(value);
                   },
-                  maxLines: null, // Allow unlimited lines for the text field
-                  minLines: 1, // Minimum lines when there is no input
+                  maxLines: null,
+                  minLines: 1,
                 ),
               ),
-              const SizedBox.square(dimension: 15),
+              const SizedBox(width: 10),
               if (!_loading)
-                IconButton(
-                  onPressed: () async {
-                    _sendChatMessage(_textController.text);
-                  },
-                  icon: Icon(
-                    Icons.send,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                Row(
+                  children: [
+                    GestureDetector(
+                      onLongPressStart: (_) => _startRecording(),
+                      onLongPressEnd: (_) => _stopRecording(),
+                      child: Icon(
+                        Icons.mic,
+                        color: _isRecording ? Colors.red : Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      onPressed: () {
+                        _sendChatMessage(_textController.text);
+                      },
+                      icon: const Icon(
+                        Icons.send,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 )
               else
                 const CircularProgressIndicator(),
@@ -390,22 +519,26 @@ class _ChatWidgetState extends State<ChatWidget> {
     });
 
     try {
-      // Prepare the messages list to send to the Flask API
+      // Prepare the messages list to send to the FastAPI backend
       final messages = _messages;
 
-      // Send the POST request to the Flask API
+      // Send the POST request to the FastAPI backend
       final response = await http.post(
-        Uri.parse('http://127.0.0.1:5000/chat'), // Update URL as needed
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('$baseUrl/chat'),
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
         body: jsonEncode({'messages': messages}),
+        encoding: Encoding.getByName('utf-8'),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
 
         // Ensure that 'messages' is in the response
         if (data.containsKey('messages')) {
-          final updatedMessages = List<Map<String, dynamic>>.from(data['messages']);
+          final updatedMessages =
+              List<Map<String, dynamic>>.from(data['messages']);
           setState(() {
             // Update the messages list with the messages from the backend
             _messages = updatedMessages;
@@ -421,7 +554,7 @@ class _ChatWidgetState extends State<ChatWidget> {
         }
       } else {
         // Handle error response
-        final errorData = jsonDecode(response.body);
+        final errorData = jsonDecode(utf8.decode(response.bodyBytes));
         final errorMessage = errorData['error'] ?? 'Unknown error';
         _showError('Error: $errorMessage');
         setState(() {
@@ -445,7 +578,7 @@ class _ChatWidgetState extends State<ChatWidget> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Something went wrong'),
+          title: const Text('Erro'),
           content: SingleChildScrollView(
             child: Text(message),
           ),
@@ -455,7 +588,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                 Navigator.of(context).pop();
               },
               child: const Text('OK'),
-            )
+            ),
           ],
         );
       },
@@ -494,12 +627,12 @@ class MessageWidget extends StatelessWidget {
                 ),
                 padding: const EdgeInsets.symmetric(
                   vertical: 15,
-                  horizontal: 16, // Horizontal padding for the message
+                  horizontal: 16,
                 ),
                 margin: EdgeInsets.only(
                   bottom: 4,
-                  left: isFromUser ? 70 : 10, // More distance from left edge for user messages
-                  right: isFromUser ? 10 : 70, // More distance from right edge for assistant messages
+                  left: isFromUser ? 70 : 10,
+                  right: isFromUser ? 10 : 70,
                 ),
                 child: MarkdownBody(data: text),
               ),
@@ -507,17 +640,17 @@ class MessageWidget extends StatelessWidget {
           ],
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12), // Horizontal padding for sender label
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            isFromUser ? 'Você' : 'Terapeuta', // Conditionally display "User" or "Assistant"
-            style: TextStyle(
-              fontSize: 14, // Smaller font size for the label
-              color: const Color.fromARGB(255, 152, 152, 245), // Faded color for text
+            isFromUser ? 'Você' : 'Terapeuta',
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color.fromARGB(255, 152, 152, 245),
               fontWeight: FontWeight.bold,
             ),
           ),
         ),
-        const SizedBox(height: 6), // Space between the sender label and the message bubble
+        const SizedBox(height: 6),
       ],
     );
   }
@@ -527,20 +660,20 @@ InputDecoration textFieldDecoration(BuildContext context, String hintText) =>
     InputDecoration(
       contentPadding: const EdgeInsets.all(15),
       hintText: hintText,
-      border: OutlineInputBorder(
-        borderRadius: const BorderRadius.all(
+      border: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(
           Radius.circular(14),
         ),
         borderSide: BorderSide(
-          color: Theme.of(context).colorScheme.secondary,
+          color: Colors.white,
         ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: const BorderRadius.all(
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(
           Radius.circular(14),
         ),
         borderSide: BorderSide(
-          color: Theme.of(context).colorScheme.secondary,
+          color: Colors.white,
         ),
       ),
     );
@@ -557,11 +690,11 @@ class FavoritesPage extends StatefulWidget {
 class _FavoritesPageState extends State<FavoritesPage> {
   void _deleteFavorite(int index) {
     setState(() {
-      widget.favorites.removeAt(index); // Remove the item from the list
+      widget.favorites.removeAt(index);
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Sessão deletada')),
+      const SnackBar(content: Text('Sessão deletada')),
     );
   }
 
@@ -605,7 +738,8 @@ class ConversationDetailPage extends StatelessWidget {
   final String title;
   final String summary;
 
-  const ConversationDetailPage({super.key, required this.title, required this.summary});
+  const ConversationDetailPage(
+      {super.key, required this.title, required this.summary});
 
   @override
   Widget build(BuildContext context) {
@@ -615,17 +749,17 @@ class ConversationDetailPage extends StatelessWidget {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            Navigator.pop(context); // Go back to the favorites page
+            Navigator.pop(context);
           },
         ),
       ),
       body: Container(
         decoration: BoxDecoration(
           image: DecorationImage(
-            image: const AssetImage('assets/couch.jpg'), // Background image
+            image: const AssetImage('assets/couch.jpg'),
             fit: BoxFit.cover,
             colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.7), // Dark overlay for readability
+              Colors.black.withOpacity(0.7),
               BlendMode.darken,
             ),
           ),
@@ -638,7 +772,7 @@ class ConversationDetailPage extends StatelessWidget {
               summary,
               style: const TextStyle(
                 fontSize: 18,
-                color: Colors.white, // Text color for readability
+                color: Colors.white,
               ),
             ),
           ),
